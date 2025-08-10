@@ -83,7 +83,7 @@ brew install python yt-dlp ffmpeg
 2. Run the script:
 
    ```bash
-   python3 SimpleMediaDownloader.py
+   python SimpleMediaDownloader.py
    ```
 
 3. Follow the on-screen menu:
