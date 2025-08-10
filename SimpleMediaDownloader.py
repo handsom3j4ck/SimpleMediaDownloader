@@ -24,7 +24,7 @@ def clear_and_banner():
     print("""
 ====================================
    SimpleMediaDownloader
-   Powered by yt-dlp
+   Powered by yt-dlp and ffmpeg
 ====================================
     """)
 
