@@ -33,7 +33,7 @@ def show_menu():
     [1] Video + Audio Download (Single or Multiple)
     [2] Audio Download (Single or Multiple)
     [3] Video Only (Single or Multiple)
-    [4] Video + Audio Playlist Download
+    [4] Video + Audio (Playlist Mode)
     [5] Audio Only (Playlist Mode)
     [6] Video Only (Playlist Mode)
     [7] Help
@@ -210,7 +210,7 @@ def download_video_with_audio():
         with yt_dlp.YoutubeDL(audio_opts) as ydl:
             ydl.download(urls)
 
-        print("\n✅ Video saved and high-quality MP3 extracted!")
+        print("\nVideo saved and high-quality MP3 extracted!")
     except Exception as e:
         print(f"\nError: {e}")
     quit_prompt()
@@ -285,7 +285,7 @@ def download_video_only_single():
 
 def download_video_with_audio_playlist():
     clear_and_banner()
-    print("=== Video + Audio Playlist Download ===\n")
+    print("=== Video + Audio (Playlist Mode) ===\n")
     url = input("Enter playlist URL: ").strip()
     if not url or not is_valid_url(url):
         print("Invalid or no URL provided.")
@@ -338,7 +338,7 @@ def download_video_with_audio_playlist():
         with yt_dlp.YoutubeDL(audio_opts) as ydl:
             ydl.download([url])
 
-        print("\n✅ Playlist: Videos saved and MP3s extracted!")
+        print("\nPlaylist: Videos saved and MP3s extracted!")
     except Exception as e:
         print(f"\nError: {e}")
     quit_prompt()
