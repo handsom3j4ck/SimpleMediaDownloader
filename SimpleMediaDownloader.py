@@ -289,7 +289,7 @@ def _retry_downloads(urls, mode):
             'postprocessors': [
                 {
                     'key': 'FFmpegVideoConvertor',
-                    'preferredformat': 'mp4',
+                    'preferedformat': 'mp4',
                 },
                 {
                     'key': 'FFmpegExtractAudio',
@@ -320,7 +320,7 @@ def _retry_downloads(urls, mode):
             'format': 'bestvideo+bestaudio',
             'postprocessors': [{
                 'key': 'FFmpegVideoConvertor',
-                'preferredformat': 'mp4',
+                'preferedformat': 'mp4',
             }],
         })
     run_download_with_log(ydl_opts, urls, mode)
@@ -408,7 +408,7 @@ def download_video_with_audio():
 
     ydl_opts = base_ydl_opts(output_dir)
     ydl_opts.update({
-        'noplaylist': True,
+        'noplaylist': False,
         'format': 'bestvideo+bestaudio',
         'postprocessors': [
             {
@@ -443,7 +443,7 @@ def download_audio_single():
 
     ydl_opts = base_ydl_opts(output_dir)
     ydl_opts.update({
-        'noplaylist': True,
+        'noplaylist': False,
         'format': 'bestaudio/best',
         'postprocessors': [
             {
@@ -474,11 +474,11 @@ def download_video_only_single():
 
     ydl_opts = base_ydl_opts(output_dir)
     ydl_opts.update({
-        'noplaylist': True,
+        'noplaylist': False,
         'format': 'bestvideo+bestaudio',
         'postprocessors': [{
             'key': 'FFmpegVideoConvertor',
-            'preferredformat': 'mp4',
+            'preferedformat': 'mp4',
         }],
     })
 
@@ -507,7 +507,7 @@ def download_video_with_audio_playlist():
         'postprocessors': [
             {
                 'key': 'FFmpegVideoConvertor',
-                'preferredformat': 'mp4',
+                'preferedformat': 'mp4',
             },
             {
                 'key': 'FFmpegExtractAudio',
@@ -578,7 +578,7 @@ def download_video_only_playlist():
         'outtmpl': full_path,
         'postprocessors': [{
             'key': 'FFmpegVideoConvertor',
-            'preferredformat': 'mp4',
+            'preferedformat': 'mp4',
         }],
     })
 
