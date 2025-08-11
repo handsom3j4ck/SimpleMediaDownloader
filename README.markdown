@@ -220,12 +220,6 @@ If any downloads fail due to network issues:
 
 ---
 
-## 📜 License
-
-This project is open-source and available under the **MIT License**. See [LICENSE](LICENSE) for details.
-
----
-
 ## 🙌 Acknowledgments
 
 - Huge thanks to the `yt-dlp` team for maintaining an incredible media downloading tool.
