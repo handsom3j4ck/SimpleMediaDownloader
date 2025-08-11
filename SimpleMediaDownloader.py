@@ -3,9 +3,9 @@
 SimpleMediaDownloader - Download videos, audio, and playlists.
 Powered by yt-dlp and ffmpeg.
 Features:
-  - Video + Audio (extract MP3)
+  - Video with Audio
   - Audio only
-  - Video only
+  - Video without Audio
   - Supports single, multiple, and playlists
   - Cross-platform (Linux/Windows)
 """
@@ -60,12 +60,12 @@ def clear_and_banner():
 
 def show_menu():
     print(f"""
-    [1] Video + Audio (Single or Multiple)
+    [1] Video with Audio (Single or Multiple)
     [2] Audio Only (Single or Multiple)
-    [3] Video Only (Single or Multiple)
-    [4] Video + Audio (Playlist Mode)
+    [3] Video without Audio (Single or Multiple)
+    [4] Video with Audio (Playlist Mode)
     [5] Audio Only (Playlist Mode)
-    [6] Video Only (Playlist Mode)
+    [6] Video without Audio (Playlist Mode)
     [7] Resume Failed Downloads
     [8] Download-Thread Settings
     [9] Help
@@ -152,9 +152,9 @@ HELP:
 - Duplicate downloads are skipped automatically
 - Retries enabled for unstable connections
 - Default download path: ~/Downloads (Linux/macOS) or C:\\Users\\<User>\\Downloads (Windows)
-- [1] & [4]: Download best video and extract MP3 from it (single pass)
+- [1] & [4]: Download video with audio (mp4)
 - [2] & [5]: Audio-only (no video saved)
-- [3] & [6]: Video-only (no MP3 extracted)
+- [3] & [6]: Video without audio (no audio track)
 - Thread Settings: Adjust [8] to control how many videos download at once
 - Failed downloads are tracked and can be retried via [7]
     """)
@@ -283,19 +283,13 @@ def _retry_downloads(urls, mode):
         ydl_opts['noplaylist'] = False
     else:
         ydl_opts['noplaylist'] = True
-    if "Video+Audio" in mode:
+    if "Video with Audio" in mode:
         ydl_opts.update({
             'format': 'bestvideo+bestaudio',
             'postprocessors': [
                 {
                     'key': 'FFmpegVideoConvertor',
-                    'preferredformat': 'mp4',
-                },
-                {
-                    'key': 'FFmpegExtractAudio',
-                    'preferredcodec': 'mp3',
-                    'preferredquality': '0',
-                    'keepvideo': True,
+                    'preferedformat': 'mp4',
                 },
                 {
                     'key': 'FFmpegMetadata',
@@ -310,19 +304,18 @@ def _retry_downloads(urls, mode):
                     'key': 'FFmpegExtractAudio',
                     'preferredcodec': 'mp3',
                     'preferredquality': '0',
-                    'keepvideo': False,
                 },
                 {
                     'key': 'FFmpegMetadata',
                 }
             ],
         })
-    elif "Video" in mode:
+    elif "Video without Audio" in mode:
         ydl_opts.update({
-            'format': 'bestvideo+bestaudio',
+            'format': 'bestvideo',
             'postprocessors': [{
                 'key': 'FFmpegVideoConvertor',
-                'preferredformat': 'mp4',
+                'preferedformat': 'mp4',
             }],
         })
     run_download_with_log(ydl_opts, urls, mode)
@@ -399,7 +392,7 @@ def run_download_with_log(ydl_opts, urls, desc):
 
 def download_video_with_audio():
     clear_and_banner()
-    print("=== Video + Audio Extraction (Single Download + Extract MP3) ===\n")
+    print("=== Video with Audio (Single or Multiple) ===\n")
     urls = get_urls(multiple=True)
     if not urls:
         print("No valid URLs provided.")
@@ -415,13 +408,7 @@ def download_video_with_audio():
         'postprocessors': [
             {
                 'key': 'FFmpegVideoConvertor',
-                'preferredformat': 'mp4',
-            },
-            {
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '0',
-                'keepvideo': True,
+                'preferedformat': 'mp4',
             },
             {
                 'key': 'FFmpegMetadata',
@@ -429,8 +416,8 @@ def download_video_with_audio():
         ],
     })
 
-    run_download(ydl_opts, urls, "Video+Audio")
-    print("\n✅ Video saved as MP4 and high-quality MP3 extracted!")
+    run_download(ydl_opts, urls, "Video with Audio")
+    print("\n✅ Video with audio download(s) completed (MP4)!")
     quit_prompt()
 
 def download_audio_single():
@@ -453,7 +440,6 @@ def download_audio_single():
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'mp3',
                 'preferredquality': '0',
-                'keepvideo': False,
             },
             {
                 'key': 'FFmpegMetadata',
@@ -467,7 +453,7 @@ def download_audio_single():
 
 def download_video_only_single():
     clear_and_banner()
-    print("=== Video Only Download (No MP3) ===\n")
+    print("=== Video without Audio (Single or Multiple) ===\n")
     urls = get_urls(multiple=True)
     if not urls:
         print("No valid URLs provided.")
@@ -479,20 +465,20 @@ def download_video_only_single():
     ydl_opts = base_ydl_opts(output_dir)
     ydl_opts.update({
         'noplaylist': True,
-        'format': 'bestvideo+bestaudio',
+        'format': 'bestvideo',
         'postprocessors': [{
             'key': 'FFmpegVideoConvertor',
-            'preferredformat': 'mp4',
+            'preferedformat': 'mp4',
         }],
     })
 
-    run_download(ydl_opts, urls, "Video")
-    print("\n✅ Video download(s) completed (no audio extracted).")
+    run_download(ydl_opts, urls, "Video without Audio")
+    print("\n✅ Video without audio download(s) completed.")
     quit_prompt()
 
 def download_video_with_audio_playlist():
     clear_and_banner()
-    print("=== Video + Audio (Playlist Mode) ===\n")
+    print("=== Video with Audio (Playlist Mode) ===\n")
     url = input("Enter playlist URL: ").strip()
     if not url or not is_valid_url(url):
         print("Invalid or no URL provided.")
@@ -511,13 +497,7 @@ def download_video_with_audio_playlist():
         'postprocessors': [
             {
                 'key': 'FFmpegVideoConvertor',
-                'preferredformat': 'mp4',
-            },
-            {
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '0',
-                'keepvideo': True,
+                'preferedformat': 'mp4',
             },
             {
                 'key': 'FFmpegMetadata',
@@ -525,8 +505,8 @@ def download_video_with_audio_playlist():
         ],
     })
 
-    run_download(ydl_opts, [url], "Playlist Video+Audio")
-    print("\n✅ Playlist: Videos saved and MP3s extracted in single pass!")
+    run_download(ydl_opts, [url], "Playlist Video with Audio")
+    print("\n✅ Playlist: Videos with audio downloaded!")
     quit_prompt()
 
 def download_audio_playlist():
@@ -552,7 +532,6 @@ def download_audio_playlist():
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'mp3',
                 'preferredquality': '0',
-                'keepvideo': False,
             },
             {
                 'key': 'FFmpegMetadata',
@@ -566,7 +545,7 @@ def download_audio_playlist():
 
 def download_video_only_playlist():
     clear_and_banner()
-    print("=== Video Only (Playlist Mode) ===\n")
+    print("=== Video without Audio (Playlist Mode) ===\n")
     url = input("Enter playlist URL: ").strip()
     if not url or not is_valid_url(url):
         print("Invalid or no URL provided.")
@@ -580,16 +559,16 @@ def download_video_only_playlist():
     ydl_opts = base_ydl_opts(output_dir)
     ydl_opts.update({
         'noplaylist': False,
-        'format': 'bestvideo+bestaudio',
+        'format': 'bestvideo',
         'outtmpl': full_path,
         'postprocessors': [{
             'key': 'FFmpegVideoConvertor',
-            'preferredformat': 'mp4',
+            'preferedformat': 'mp4',
         }],
     })
 
-    run_download(ydl_opts, [url], "Playlist Video")
-    print("\n✅ Playlist video download completed (no audio extracted).")
+    run_download(ydl_opts, [url], "Playlist Video without Audio")
+    print("\n✅ Playlist video without audio download completed.")
     quit_prompt()
 
 # =============================
