@@ -22,6 +22,9 @@ import shutil
 # Default number of concurrent download threads
 MAX_WORKERS = 5
 
+# Track failed downloads during session: [(url, desc, error)]
+FAILED_DOWNLOADS = []
+
 # =============================
 # Check for FFmpeg at Startup
 # =============================
@@ -55,9 +58,10 @@ def show_menu():
     [4] Video + Audio (Playlist Mode)
     [5] Audio Only (Playlist Mode)
     [6] Video Only (Playlist Mode)
-    [7] Download-Thread Settings
-    [8] Help
-    [9] Exit
+    [7] Resume Failed Downloads
+    [8] Download-Thread Settings
+    [9] Help
+    [10] Exit
     """)
 
 def is_valid_url(url):
@@ -143,7 +147,8 @@ HELP:
 - [1] & [4]: Download best video and extract MP3 from it (single pass)
 - [2] & [5]: Audio-only (no video saved)
 - [3] & [6]: Video-only (no MP3 extracted)
-- Thread Settings: Adjust [7] to control how many videos download at once
+- Thread Settings: Adjust [8] to control how many videos download at once
+- Failed downloads are tracked and can be retried via [7]
     """)
     quit_prompt()
 
@@ -193,6 +198,127 @@ def download_thread_settings():
         quit_prompt()
 
 # =============================
+# Resume Failed Downloads
+# =============================
+
+def resume_failed_downloads():
+    global FAILED_DOWNLOADS
+    clear_and_banner()
+    print("=== Resume Failed Downloads ===\n")
+
+    if not FAILED_DOWNLOADS:
+        print("No failed downloads to resume.")
+        quit_prompt()
+        return
+
+    print("Failed downloads:")
+    print("-" * 80)
+    for i, (url, desc, error) in enumerate(FAILED_DOWNLOADS, start=1):
+        print(f"[{i}] {desc}")
+        print(f"    URL: {url}")
+        print(f"    Reason: {error}")
+        print()
+
+    print("-" * 80)
+    print("Options:")
+    print("  - Retry all ............... [A]")
+    print("  - Retry specific by number  [1, 2, ...]")
+    print("  - Cancel .................. [C]")
+
+    choice = input("\nChoose action: ").strip().lower()
+
+    if choice == 'c':
+        print("Cancelled.")
+        quit_prompt()
+        return
+    elif choice == 'a':
+        # Retry all
+        urls_to_retry = [item[0] for item in FAILED_DOWNLOADS]
+        desc = FAILED_DOWNLOADS[0][1].split(" (")[0]  # e.g., "Video", "Audio"
+        print(f"\nRetrying {len(urls_to_retry)} failed downloads...")
+        # Remove from failed list temporarily to avoid duplication
+        old_failures = FAILED_DOWNLOADS[:]
+        FAILED_DOWNLOADS = [f for f in FAILED_DOWNLOADS if f[0] not in urls_to_retry]
+        # Re-run with same logic
+        if "Video+" in desc:
+            _retry_downloads(urls_to_retry, "Video+Audio")
+        elif "Audio" in desc:
+            _retry_downloads(urls_to_retry, "Audio")
+        elif "Video" in desc:
+            _retry_downloads(urls_to_retry, "Video")
+        else:
+            _retry_downloads(urls_to_retry, "Download")
+    elif choice.isdigit():
+        idx = int(choice) - 1
+        if 0 <= idx < len(FAILED_DOWNLOADS):
+            url, desc, _ = FAILED_DOWNLOADS[idx]
+            FAILED_DOWNLOADS.pop(idx)
+            print(f"\nRetrying: {url}")
+            if "Video+Audio" in desc:
+                _retry_downloads([url], "Video+Audio")
+            elif "Audio" in desc:
+                _retry_downloads([url], "Audio")
+            elif "Video" in desc:
+                _retry_downloads([url], "Video")
+            else:
+                _retry_downloads([url], "Download")
+        else:
+            print("Invalid number.")
+    else:
+        print("Invalid choice.")
+
+    quit_prompt()
+
+def _retry_downloads(urls, mode):
+    """Internal helper to retry downloads based on mode."""
+    output_dir = get_output_dir()
+    ydl_opts = base_ydl_opts(output_dir, merge_format='mp4')
+
+    if mode == "Video+Audio":
+        ydl_opts.update({
+            'format': 'bestvideo+bestaudio',
+            'postprocessors': [
+                {
+                    'key': 'FFmpegVideoConvertor',
+                    'preferedformat': 'mp4',
+                },
+                {
+                    'key': 'FFmpegExtractAudio',
+                    'preferredcodec': 'mp3',
+                    'preferredquality': '0',
+                },
+                {
+                    'key': 'FFmpegMetadata',
+                }
+            ],
+        })
+        run_download_with_log(ydl_opts, urls, "Video+Audio")
+    elif mode == "Audio":
+        ydl_opts.update({
+            'format': 'bestaudio/best',
+            'postprocessors': [
+                {
+                    'key': 'FFmpegExtractAudio',
+                    'preferredcodec': 'mp3',
+                    'preferredquality': '0',
+                },
+                {
+                    'key': 'FFmpegMetadata',
+                }
+            ],
+        })
+        run_download_with_log(ydl_opts, urls, "Audio")
+    elif mode == "Video":
+        ydl_opts.update({
+            'format': 'bestvideo+bestaudio',
+            'postprocessors': [{
+                'key': 'FFmpegVideoConvertor',
+                'preferedformat': 'mp4',
+            }],
+        })
+        run_download_with_log(ydl_opts, urls, "Video")
+
+# =============================
 # yt-dlp Options Templates
 # =============================
 
@@ -226,14 +352,27 @@ def import_yt_dlp():
         sys.exit(1)
 
 def run_download(ydl_opts, urls, desc="Downloading"):
-    """Generic download function with error handling."""
+    """Generic download function with error handling and failure logging."""
+    global FAILED_DOWNLOADS
     yt_dlp = import_yt_dlp()
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download(urls)
-        print(f"\n{desc} completed.")
-    except Exception as e:
-        print(f"\nError during {desc.lower()}: {e}")
+    failed = []
+    for url in urls:
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([url])
+            print(f"[✓] {desc} succeeded: {url}")
+        except Exception as e:
+            err_msg = str(e).split('\n')[0]  # One-line error
+            print(f"[✗] {desc} failed: {url}")
+            failed.append((url, desc, err_msg))
+    # Log failures
+    if failed:
+        FAILED_DOWNLOADS.extend(failed)
+        print(f"\n❌ {len(failed)}/{len(urls)} download(s) failed. Use [7] to retry.")
+
+def run_download_with_log(ydl_opts, urls, desc):
+    """Wrapper that logs failures (used by retry)."""
+    run_download(ydl_opts, urls, desc)
 
 # =============================
 # Download Functions (Optimized)
@@ -250,12 +389,9 @@ def download_video_with_audio():
 
     output_dir = get_output_dir()
 
-    # Download once: best video+audio, merge to mp4, then extract MP3
-    print("\n[1/2] Downloading best video with audio (merged)...")
-    video_opts = base_ydl_opts(output_dir, merge_format='mp4')
-    video_opts.update({
+    ydl_opts = base_ydl_opts(output_dir, merge_format='mp4')
+    ydl_opts.update({
         'format': 'bestvideo+bestaudio',
-        'outtmpl': os.path.join(output_dir, '%(title)s [%(id)s].%(ext)s'),
         'postprocessors': [
             {
                 'key': 'FFmpegVideoConvertor',
@@ -272,7 +408,7 @@ def download_video_with_audio():
         ],
     })
 
-    run_download(video_opts, urls, "Video download and MP3 extraction")
+    run_download(ydl_opts, urls, "Video+Audio")
     print("\n✅ Video saved as MP4 and high-quality MP3 extracted!")
     quit_prompt()
 
@@ -297,15 +433,12 @@ def download_audio_single():
                 'preferredquality': '0',
             },
             {
-                'key': 'FFmpegEmbedSubtitle',
-            },
-            {
                 'key': 'FFmpegMetadata',
             }
         ],
     })
 
-    run_download(ydl_opts, urls, "Audio download")
+    run_download(ydl_opts, urls, "Audio")
     print("\n✅ Audio extraction(s) completed (MP3, best quality).")
     quit_prompt()
 
@@ -323,14 +456,13 @@ def download_video_only_single():
     ydl_opts = base_ydl_opts(output_dir, merge_format='mp4')
     ydl_opts.update({
         'format': 'bestvideo+bestaudio',
-        'outtmpl': os.path.join(output_dir, '%(title)s [%(id)s].%(ext)s'),
         'postprocessors': [{
             'key': 'FFmpegVideoConvertor',
             'preferedformat': 'mp4',
         }],
     })
 
-    run_download(ydl_opts, urls, "Video download")
+    run_download(ydl_opts, urls, "Video")
     print("\n✅ Video download(s) completed (no audio extracted).")
     quit_prompt()
 
@@ -347,7 +479,6 @@ def download_video_with_audio_playlist():
     playlist_dir = os.path.join(output_dir, "%(playlist_title)s")
     full_path = os.path.join(playlist_dir, "%(title)s [%(id)s].%(ext)s")
 
-    print("\nDownloading each video and extracting MP3...")
     ydl_opts = base_ydl_opts(output_dir)
     ydl_opts.update({
         'format': 'bestvideo+bestaudio',
@@ -370,7 +501,7 @@ def download_video_with_audio_playlist():
         ],
     })
 
-    run_download(ydl_opts, [url], "Playlist video and MP3 extraction")
+    run_download(ydl_opts, [url], "Playlist Video+Audio")
     print("\n✅ Playlist: Videos saved and MP3s extracted in single pass!")
     quit_prompt()
 
@@ -404,7 +535,7 @@ def download_audio_playlist():
         ],
     })
 
-    run_download(ydl_opts, [url], "Playlist audio download")
+    run_download(ydl_opts, [url], "Playlist Audio")
     print("\n✅ Playlist audio download completed.")
     quit_prompt()
 
@@ -433,7 +564,7 @@ def download_video_only_playlist():
         }],
     })
 
-    run_download(ydl_opts, [url], "Playlist video download")
+    run_download(ydl_opts, [url], "Playlist Video")
     print("\n✅ Playlist video download completed (no audio extracted).")
     quit_prompt()
 
@@ -463,10 +594,12 @@ def select():
         elif choice == 6:
             download_video_only_playlist()
         elif choice == 7:
-            download_thread_settings()
+            resume_failed_downloads()
         elif choice == 8:
-            show_help()
+            download_thread_settings()
         elif choice == 9:
+            show_help()
+        elif choice == 10:
             print("Exiting...")
             sys.exit(0)
         else:
