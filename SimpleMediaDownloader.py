@@ -14,6 +14,14 @@ import os
 import sys
 import re
 import shutil
+import concurrent.futures
+from collections import defaultdict
+
+try:
+    import yt_dlp
+except ImportError:
+    print("Error: yt-dlp is not installed. Run: pip install yt-dlp")
+    sys.exit(1)
 
 # =============================
 # Global Configuration
@@ -232,36 +240,31 @@ def resume_failed_downloads():
         quit_prompt()
         return
     elif choice == 'a':
-        # Retry all
-        urls_to_retry = [item[0] for item in FAILED_DOWNLOADS]
-        desc = FAILED_DOWNLOADS[0][1].split(" (")[0]  # e.g., "Video", "Audio"
-        print(f"\nRetrying {len(urls_to_retry)} failed downloads...")
-        # Remove from failed list temporarily to avoid duplication
-        old_failures = FAILED_DOWNLOADS[:]
-        FAILED_DOWNLOADS = [f for f in FAILED_DOWNLOADS if f[0] not in urls_to_retry]
-        # Re-run with same logic
-        if "Video+" in desc:
-            _retry_downloads(urls_to_retry, "Video+Audio")
-        elif "Audio" in desc:
-            _retry_downloads(urls_to_retry, "Audio")
-        elif "Video" in desc:
-            _retry_downloads(urls_to_retry, "Video")
-        else:
-            _retry_downloads(urls_to_retry, "Download")
+        # Retry all, grouped by desc
+        failed_by_desc = defaultdict(list)
+        for url, d, err in FAILED_DOWNLOADS:
+            failed_by_desc[d].append(url)
+        FAILED_DOWNLOADS = []  # Clear before retry; failures will be re-added if they fail again
+        for desc, urls in failed_by_desc.items():
+            print(f"\nRetrying {len(urls)} failed downloads for {desc}...")
+            _retry_downloads(urls, desc)
+    elif ',' in choice:
+        # Retry multiple specific
+        idxs = [int(i.strip()) - 1 for i in choice.split(',') if i.strip().isdigit()]
+        to_retry = []
+        for idx in sorted(idxs, reverse=True):  # Pop in reverse to avoid index shifts
+            if 0 <= idx < len(FAILED_DOWNLOADS):
+                to_retry.append(FAILED_DOWNLOADS.pop(idx))
+        for url, desc, _ in reversed(to_retry):  # Retry in original order
+            print(f"\nRetrying: {url}")
+            _retry_downloads([url], desc)
     elif choice.isdigit():
+        # Retry single specific
         idx = int(choice) - 1
         if 0 <= idx < len(FAILED_DOWNLOADS):
-            url, desc, _ = FAILED_DOWNLOADS[idx]
-            FAILED_DOWNLOADS.pop(idx)
+            url, desc, _ = FAILED_DOWNLOADS.pop(idx)
             print(f"\nRetrying: {url}")
-            if "Video+Audio" in desc:
-                _retry_downloads([url], "Video+Audio")
-            elif "Audio" in desc:
-                _retry_downloads([url], "Audio")
-            elif "Video" in desc:
-                _retry_downloads([url], "Video")
-            else:
-                _retry_downloads([url], "Download")
+            _retry_downloads([url], desc)
         else:
             print("Invalid number.")
     else:
@@ -272,15 +275,21 @@ def resume_failed_downloads():
 def _retry_downloads(urls, mode):
     """Internal helper to retry downloads based on mode."""
     output_dir = get_output_dir()
-    ydl_opts = base_ydl_opts(output_dir, merge_format='mp4')
-
-    if mode == "Video+Audio":
+    ydl_opts = base_ydl_opts(output_dir)
+    is_playlist = "Playlist" in mode
+    if is_playlist:
+        playlist_dir = os.path.join(output_dir, "%(playlist_title)s")
+        ydl_opts['outtmpl'] = os.path.join(playlist_dir, "%(title)s [%(id)s].%(ext)s")
+        ydl_opts['noplaylist'] = False
+    else:
+        ydl_opts['noplaylist'] = True
+    if "Video+Audio" in mode:
         ydl_opts.update({
             'format': 'bestvideo+bestaudio',
             'postprocessors': [
                 {
                     'key': 'FFmpegVideoConvertor',
-                    'preferedformat': 'mp4',
+                    'preferredformat': 'mp4',
                 },
                 {
                     'key': 'FFmpegExtractAudio',
@@ -292,8 +301,7 @@ def _retry_downloads(urls, mode):
                 }
             ],
         })
-        run_download_with_log(ydl_opts, urls, "Video+Audio")
-    elif mode == "Audio":
+    elif "Audio" in mode:
         ydl_opts.update({
             'format': 'bestaudio/best',
             'postprocessors': [
@@ -307,33 +315,30 @@ def _retry_downloads(urls, mode):
                 }
             ],
         })
-        run_download_with_log(ydl_opts, urls, "Audio")
-    elif mode == "Video":
+    elif "Video" in mode:
         ydl_opts.update({
             'format': 'bestvideo+bestaudio',
             'postprocessors': [{
                 'key': 'FFmpegVideoConvertor',
-                'preferedformat': 'mp4',
+                'preferredformat': 'mp4',
             }],
         })
-        run_download_with_log(ydl_opts, urls, "Video")
+    run_download_with_log(ydl_opts, urls, mode)
 
 # =============================
 # yt-dlp Options Templates
 # =============================
 
-def base_ydl_opts(output_dir, merge_format='mp4'):
+def base_ydl_opts(output_dir):
     """Base options with retries and safety."""
     return {
         'retries': 5,
         'fragment_retries': 10,
-        'part_retries': 10,
-        'continuedl': True,
-        'nooverwrites': True,
+        'continue': True,
+        'no_overwrites': True,
         'progress_hooks': [progress_hook],
         'outtmpl': os.path.join(output_dir, '%(title)s [%(id)s].%(ext)s'),
         'writethumbnail': False,
-        'merge_output_format': merge_format,
         'quiet': False,
         'verbose': False,
     }
@@ -342,30 +347,42 @@ def base_ydl_opts(output_dir, merge_format='mp4'):
 # Shared Download Functions
 # =============================
 
-def import_yt_dlp():
-    """Safely import yt_dlp with error handling."""
+def download_single(ydl_opts, url, desc):
     try:
-        import yt_dlp
-        return yt_dlp
-    except ImportError:
-        print("Error: yt-dlp is not installed. Run: pip install yt-dlp")
-        sys.exit(1)
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url])
+        print(f"[✓] {desc} succeeded: {url}")
+        return None
+    except Exception as e:
+        err_msg = str(e).split('\n')[0]
+        print(f"[✗] {desc} failed: {url} - {err_msg}")
+        return (url, desc, err_msg)
 
 def run_download(ydl_opts, urls, desc="Downloading"):
     """Generic download function with error handling and failure logging."""
     global FAILED_DOWNLOADS
-    yt_dlp = import_yt_dlp()
     failed = []
-    for url in urls:
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([url])
-            print(f"[✓] {desc} succeeded: {url}")
-        except Exception as e:
-            err_msg = str(e).split('\n')[0]  # One-line error
-            print(f"[✗] {desc} failed: {url}")
-            failed.append((url, desc, err_msg))
-    # Log failures
+    if not urls:
+        return
+    if len(urls) > 1:
+        # Concurrent downloads for multiple URLs
+        with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+            future_to_url = {executor.submit(download_single, ydl_opts.copy(), url, desc): url for url in urls}
+            for future in concurrent.futures.as_completed(future_to_url):
+                try:
+                    result = future.result()
+                    if result:
+                        failed.append(result)
+                except Exception as exc:
+                    url = future_to_url[future]
+                    err_msg = str(exc).split('\n')[0]
+                    print(f"[✗] {desc} failed: {url} ({err_msg})")
+                    failed.append((url, desc, err_msg))
+    else:
+        # Single URL
+        result = download_single(ydl_opts, urls[0], desc)
+        if result:
+            failed.append(result)
     if failed:
         FAILED_DOWNLOADS.extend(failed)
         print(f"\n❌ {len(failed)}/{len(urls)} download(s) failed. Use [7] to retry.")
@@ -389,13 +406,14 @@ def download_video_with_audio():
 
     output_dir = get_output_dir()
 
-    ydl_opts = base_ydl_opts(output_dir, merge_format='mp4')
+    ydl_opts = base_ydl_opts(output_dir)
     ydl_opts.update({
+        'noplaylist': True,
         'format': 'bestvideo+bestaudio',
         'postprocessors': [
             {
                 'key': 'FFmpegVideoConvertor',
-                'preferedformat': 'mp4',
+                'preferredformat': 'mp4',
             },
             {
                 'key': 'FFmpegExtractAudio',
@@ -425,6 +443,7 @@ def download_audio_single():
 
     ydl_opts = base_ydl_opts(output_dir)
     ydl_opts.update({
+        'noplaylist': True,
         'format': 'bestaudio/best',
         'postprocessors': [
             {
@@ -453,12 +472,13 @@ def download_video_only_single():
 
     output_dir = get_output_dir()
 
-    ydl_opts = base_ydl_opts(output_dir, merge_format='mp4')
+    ydl_opts = base_ydl_opts(output_dir)
     ydl_opts.update({
+        'noplaylist': True,
         'format': 'bestvideo+bestaudio',
         'postprocessors': [{
             'key': 'FFmpegVideoConvertor',
-            'preferedformat': 'mp4',
+            'preferredformat': 'mp4',
         }],
     })
 
@@ -481,14 +501,13 @@ def download_video_with_audio_playlist():
 
     ydl_opts = base_ydl_opts(output_dir)
     ydl_opts.update({
+        'noplaylist': False,
         'format': 'bestvideo+bestaudio',
         'outtmpl': full_path,
-        'noplaylist': False,
-        'merge_output_format': 'mp4',
         'postprocessors': [
             {
                 'key': 'FFmpegVideoConvertor',
-                'preferedformat': 'mp4',
+                'preferredformat': 'mp4',
             },
             {
                 'key': 'FFmpegExtractAudio',
@@ -520,9 +539,9 @@ def download_audio_playlist():
 
     ydl_opts = base_ydl_opts(output_dir)
     ydl_opts.update({
+        'noplaylist': False,
         'format': 'bestaudio/best',
         'outtmpl': full_path,
-        'noplaylist': False,
         'postprocessors': [
             {
                 'key': 'FFmpegExtractAudio',
@@ -552,15 +571,14 @@ def download_video_only_playlist():
     playlist_dir = os.path.join(output_dir, "%(playlist_title)s")
     full_path = os.path.join(playlist_dir, "%(title)s [%(id)s].%(ext)s")
 
-    ydl_opts = base_ydl_opts(output_dir, merge_format='mp4')
+    ydl_opts = base_ydl_opts(output_dir)
     ydl_opts.update({
+        'noplaylist': False,
         'format': 'bestvideo+bestaudio',
         'outtmpl': full_path,
-        'noplaylist': False,
-        'merge_output_format': 'mp4',
         'postprocessors': [{
             'key': 'FFmpegVideoConvertor',
-            'preferedformat': 'mp4',
+            'preferredformat': 'mp4',
         }],
     })
 
