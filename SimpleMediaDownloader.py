@@ -8,12 +8,25 @@ Features:
   - Video only
   - Supports single, multiple, and playlists
   - Cross-platform (Linux/Windows)
+  - Concurrent downloads for multiple URLs
 """
 
 import os
 import sys
 import re
 import shutil
+import concurrent.futures
+from threading import Lock
+
+# =============================
+# Global Variables
+# =============================
+
+# For thread-safe printing
+print_lock = Lock()
+
+# Max concurrent download threads
+MAX_WORKERS = 3  # Adjust based on bandwidth and system
 
 # =============================
 # Check for FFmpeg at Startup
@@ -108,16 +121,18 @@ def get_output_dir():
     return save_dir
 
 def progress_hook(d):
-    """Display download progress."""
+    """Display download progress (thread-safe)."""
     if d['status'] == 'downloading':
         percent = d.get('_percent_str', 'N/A').strip()
         speed = d.get('_speed_str', 'N/A').strip()
         eta = d.get('_eta_str', 'N/A').strip()
-        sys.stdout.write(f"\rDownloading: {percent} at {speed} | ETA: {eta}")
-        sys.stdout.flush()
+        with print_lock:
+            sys.stdout.write(f"\rDownloading: {percent} at {speed} | ETA: {eta}")
+            sys.stdout.flush()
     elif d['status'] == 'finished':
-        sys.stdout.write("\rDownload completed.                                \n")
-        sys.stdout.flush()
+        with print_lock:
+            sys.stdout.write("\rDownload completed.                                \n")
+            sys.stdout.flush()
 
 def show_help():
     clear_and_banner()
@@ -135,6 +150,7 @@ HELP:
 - [1] & [4]: Download best video and extract MP3 from it (single pass)
 - [2] & [5]: Audio-only (no video saved)
 - [3] & [6]: Video-only (no MP3 extracted)
+- Concurrent downloads: Up to 3 videos at once (configurable)
     """)
     quit_prompt()
 
@@ -189,23 +205,41 @@ def import_yt_dlp():
         print("Error: yt-dlp is not installed. Run: pip install yt-dlp")
         sys.exit(1)
 
-def run_download(ydl_opts, urls, desc="Downloading"):
-    """Generic download function with error handling."""
+def download_single_url(url, ydl_opts, desc="Download"):
+    """Download a single URL with isolated yt-dlp instance."""
     yt_dlp = import_yt_dlp()
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download(urls)
-        print(f"\n{desc} completed.")
+            ydl.download([url])
+        with print_lock:
+            print(f"[✓] {desc} completed: {url}")
+        return True
     except Exception as e:
-        print(f"\nError during {desc.lower()}: {e}")
+        with print_lock:
+            print(f"[✗] {desc} failed for: {url} | Error: {e}")
+        return False
+
+def run_concurrent_downloads(urls, ydl_opts, desc="Downloading", max_workers=MAX_WORKERS):
+    """Run multiple downloads in parallel using ThreadPoolExecutor."""
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [
+            executor.submit(download_single_url, url, ydl_opts, desc)
+            for url in urls
+        ]
+        # Wait for all to complete
+        concurrent.futures.wait(futures)
+
+    # Count results
+    successes = sum(f.result() for f in futures)
+    print(f"\n✅ Completed: {successes}/{len(urls)} downloads succeeded.")
 
 # =============================
-# Download Functions (Optimized)
+# Download Functions (With Concurrency)
 # =============================
 
 def download_video_with_audio():
     clear_and_banner()
-    print("=== Video + Audio Extraction (Single Download + Extract MP3) ===\n")
+    print("=== Video + Audio Extraction (Concurrent Mode) ===\n")
     urls = get_urls(multiple=True)
     if not urls:
         print("No valid URLs provided.")
@@ -214,12 +248,11 @@ def download_video_with_audio():
 
     output_dir = get_output_dir()
 
-    # Download once: best video+audio, merge to mp4, then extract MP3
-    print("\n[1/2] Downloading best video with audio (merged)...")
-    video_opts = base_ydl_opts(output_dir, merge_format='mp4')
-    video_opts.update({
+    print(f"\nStarting up to {MAX_WORKERS} concurrent downloads...\n")
+
+    ydl_opts = base_ydl_opts(output_dir, merge_format='mp4')
+    ydl_opts.update({
         'format': 'bestvideo+bestaudio',
-        'outtmpl': os.path.join(output_dir, '%(title)s [%(id)s].%(ext)s'),
         'postprocessors': [
             {
                 'key': 'FFmpegVideoConvertor',
@@ -236,13 +269,13 @@ def download_video_with_audio():
         ],
     })
 
-    run_download(video_opts, urls, "Video download and MP3 extraction")
-    print("\n✅ Video saved as MP4 and high-quality MP3 extracted!")
+    run_concurrent_downloads(urls, ydl_opts, "Video+Audio")
+    print("\n✅ All tasks finished: videos saved and MP3s extracted!")
     quit_prompt()
 
 def download_audio_single():
     clear_and_banner()
-    print("=== Audio Download (Single or Multiple) ===\n")
+    print("=== Audio Download (Concurrent Mode) ===\n")
     urls = get_urls(multiple=True)
     if not urls:
         print("No valid URLs provided.")
@@ -250,6 +283,8 @@ def download_audio_single():
         return
 
     output_dir = get_output_dir()
+
+    print(f"\nStarting up to {MAX_WORKERS} concurrent audio downloads...\n")
 
     ydl_opts = base_ydl_opts(output_dir)
     ydl_opts.update({
@@ -269,13 +304,13 @@ def download_audio_single():
         ],
     })
 
-    run_download(ydl_opts, urls, "Audio download")
-    print("\n✅ Audio extraction(s) completed (MP3, best quality).")
+    run_concurrent_downloads(urls, ydl_opts, "Audio")
+    print("\n✅ All audio downloads completed (MP3, best quality).")
     quit_prompt()
 
 def download_video_only_single():
     clear_and_banner()
-    print("=== Video Only Download (No MP3) ===\n")
+    print("=== Video Only Download (Concurrent Mode) ===\n")
     urls = get_urls(multiple=True)
     if not urls:
         print("No valid URLs provided.")
@@ -284,18 +319,19 @@ def download_video_only_single():
 
     output_dir = get_output_dir()
 
+    print(f"\nStarting up to {MAX_WORKERS} concurrent video downloads...\n")
+
     ydl_opts = base_ydl_opts(output_dir, merge_format='mp4')
     ydl_opts.update({
         'format': 'bestvideo+bestaudio',
-        'outtmpl': os.path.join(output_dir, '%(title)s [%(id)s].%(ext)s'),
         'postprocessors': [{
             'key': 'FFmpegVideoConvertor',
             'preferedformat': 'mp4',
         }],
     })
 
-    run_download(ydl_opts, urls, "Video download")
-    print("\n✅ Video download(s) completed (no audio extracted).")
+    run_concurrent_downloads(urls, ydl_opts, "Video")
+    print("\n✅ All video downloads completed (no audio extracted).")
     quit_prompt()
 
 def download_video_with_audio_playlist():
@@ -311,7 +347,7 @@ def download_video_with_audio_playlist():
     playlist_dir = os.path.join(output_dir, "%(playlist_title)s")
     full_path = os.path.join(playlist_dir, "%(title)s [%(id)s].%(ext)s")
 
-    print("\nDownloading each video and extracting MP3...")
+    print("\nDownloading playlist (yt-dlp handles concurrency internally)...")
     ydl_opts = base_ydl_opts(output_dir)
     ydl_opts.update({
         'format': 'bestvideo+bestaudio',
@@ -400,6 +436,20 @@ def download_video_only_playlist():
     run_download(ydl_opts, [url], "Playlist video download")
     print("\n✅ Playlist video download completed (no audio extracted).")
     quit_prompt()
+
+# =============================
+# Shared Legacy Function (for playlist modes)
+# =============================
+
+def run_download(ydl_opts, urls, desc="Downloading"):
+    """Generic download function (used for playlist modes)."""
+    yt_dlp = import_yt_dlp()
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download(urls)
+        print(f"\n{desc} completed.")
+    except Exception as e:
+        print(f"\nError during {desc.lower()}: {e}")
 
 # =============================
 # Main Menu
