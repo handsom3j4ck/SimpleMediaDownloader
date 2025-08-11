@@ -26,7 +26,7 @@ from threading import Lock
 print_lock = Lock()
 
 # Max concurrent download threads
-MAX_WORKERS = 3  # Adjust based on bandwidth and system
+MAX_WORKERS = 5  # Adjust based on bandwidth and system
 
 # =============================
 # Check for FFmpeg at Startup
