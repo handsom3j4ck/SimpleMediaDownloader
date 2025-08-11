@@ -295,6 +295,7 @@ def _retry_downloads(urls, mode):
                     'key': 'FFmpegExtractAudio',
                     'preferredcodec': 'mp3',
                     'preferredquality': '0',
+                    'keepvideo': True,
                 },
                 {
                     'key': 'FFmpegMetadata',
@@ -334,7 +335,7 @@ def base_ydl_opts(output_dir):
     return {
         'retries': 5,
         'fragment_retries': 10,
-        'continue': True,
+        'continuedl': True,
         'nooverwrites': True,
         'progress_hooks': [progress_hook],
         'outtmpl': os.path.join(output_dir, '%(title)s [%(id)s].%(ext)s'),
@@ -419,6 +420,7 @@ def download_video_with_audio():
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'mp3',
                 'preferredquality': '0',
+                'keepvideo': True,
             },
             {
                 'key': 'FFmpegMetadata',
@@ -513,6 +515,7 @@ def download_video_with_audio_playlist():
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'mp3',
                 'preferredquality': '0',
+                'keepvideo': True,
             },
             {
                 'key': 'FFmpegMetadata',
