@@ -114,7 +114,7 @@ brew install python yt-dlp ffmpeg
 1. **Clone the repository:**
 
    ```bash
-   git clone https://github.com/yourusername/SimpleMediaDownloader.git
+   git clone https://github.com/handsom3j4ck/SimpleMediaDownloader.git
    cd SimpleMediaDownloader
    ```
 
@@ -230,7 +230,7 @@ If any downloads fail due to network issues:
 ## 📬 Feedback & Contributions
 
 Found a bug? Want a new feature?  
-Feel free to open an [issue](https://github.com/yourusername/SimpleMediaDownloader/issues) or submit a [pull request](https://github.com/yourusername/SimpleMediaDownloader/pulls)!
+Feel free to open an [issue](https://github.com/handsom3j4ck/SimpleMediaDownloader/issues) or submit a [pull request](https://github.com/handsom3j4ck/SimpleMediaDownloader/pulls)!
 
 ---
 
