@@ -60,8 +60,8 @@ def clear_and_banner():
 
 def show_menu():
     print(f"""
-    [1] Video + Audio Download (Single or Multiple)
-    [2] Audio Download (Single or Multiple)
+    [1] Video + Audio (Single or Multiple)
+    [2] Audio Only (Single or Multiple)
     [3] Video Only (Single or Multiple)
     [4] Video + Audio (Playlist Mode)
     [5] Audio Only (Playlist Mode)
@@ -310,6 +310,7 @@ def _retry_downloads(urls, mode):
                     'key': 'FFmpegExtractAudio',
                     'preferredcodec': 'mp3',
                     'preferredquality': '0',
+                    'keepvideo': False,
                 },
                 {
                     'key': 'FFmpegMetadata',
@@ -452,6 +453,7 @@ def download_audio_single():
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'mp3',
                 'preferredquality': '0',
+                'keepvideo': False,
             },
             {
                 'key': 'FFmpegMetadata',
@@ -550,6 +552,7 @@ def download_audio_playlist():
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'mp3',
                 'preferredquality': '0',
+                'keepvideo': False,
             },
             {
                 'key': 'FFmpegMetadata',
