@@ -6,8 +6,8 @@ A simple, user-friendly command-line tool to download videos, audio, and playlis
 
 ## ✨ Features
 
-- **Video + Audio Download**  
-  Download the best quality video and audio, then merge into MP4 and extract high-quality MP3 in one pass.
+- **Video with Audio Download**  
+  Download the best quality video and audio, then merge into MP4.
 
 - **Audio Only (MP3)**  
   Extract high-quality MP3s (VBR quality 0) directly — perfect for music or podcasts.
