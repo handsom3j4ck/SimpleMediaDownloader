@@ -49,7 +49,12 @@ def get_urls(multiple=True):
     """Get one or more URLs from user."""
     if not multiple:
         url = input("Enter URL: ").strip()
-        return [url] if url else []
+        if not url:
+            return []
+        if not is_valid_url(url):
+            print(f"  [!] Invalid URL: {url}")
+            return []
+        return [url]
 
     print("Enter URLs (one per line). Press Enter twice to finish:")
     urls = []
@@ -72,8 +77,7 @@ def get_default_downloads_dir():
     downloads = os.path.join(home, "Downloads")
     if os.path.exists(downloads) and os.path.isdir(downloads):
         return downloads
-    else:
-        return "./downloads"  # Fallback
+    return "./downloads"  # Fallback
 
 def get_output_dir():
     """Prompt user for output directory, defaulting to OS Downloads folder."""
@@ -94,13 +98,14 @@ def get_output_dir():
 def progress_hook(d):
     """Display download progress."""
     if d['status'] == 'downloading':
-        percent = d.get('_percent_str', 'N/A')
-        speed = d.get('_speed_str', 'N/A')
-        eta = d.get('_eta_str', 'N/A')
-        sys.stdout.write(f"\rDownloading: {percent} at {speed} | ETA: {eta} ")
+        percent = d.get('_percent_str', 'N/A').strip()
+        speed = d.get('_speed_str', 'N/A').strip()
+        eta = d.get('_eta_str', 'N/A').strip()
+        sys.stdout.write(f"\rDownloading: {percent} at {speed} | ETA: {eta}")
         sys.stdout.flush()
     elif d['status'] == 'finished':
-        print("\nDownload completed.")
+        sys.stdout.write("\rDownload completed.                                \n")
+        sys.stdout.flush()
 
 def show_help():
     clear_and_banner()
@@ -155,10 +160,35 @@ def base_ydl_opts(output_dir, merge_format='mp4'):
         'outtmpl': os.path.join(output_dir, '%(title)s [%(id)s].%(ext)s'),
         'writethumbnail': False,
         'merge_output_format': merge_format,
+        'quiet': False,
+        'verbose': False,
     }
 
 # =============================
-# Download Functions
+# Shared Download Functions
+# =============================
+
+def import_yt_dlp():
+    """Safely import yt_dlp with error handling."""
+    try:
+        import yt_dlp
+        return yt_dlp
+    except ImportError:
+        print("Error: yt-dlp is not installed. Run: pip install yt-dlp")
+        sys.exit(1)
+
+def run_download(ydl_opts, urls, desc="Downloading"):
+    """Generic download function with error handling."""
+    yt_dlp = import_yt_dlp()
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download(urls)
+        print(f"\n{desc} completed.")
+    except Exception as e:
+        print(f"\nError during {desc.lower()}: {e}")
+
+# =============================
+# Download Functions (Enhanced)
 # =============================
 
 def download_video_with_audio():
@@ -171,48 +201,42 @@ def download_video_with_audio():
         return
 
     output_dir = get_output_dir()
+    yt_dlp = import_yt_dlp()
 
-    try:
-        import yt_dlp
+    # Step 1: Download best video (merged)
+    print("\n[1/2] Downloading best video (merged)...")
+    video_opts = base_ydl_opts(output_dir, merge_format='mp4')
+    video_opts.update({
+        'format': 'bestvideo+bestaudio',
+        'outtmpl': os.path.join(output_dir, '%(title)s [%(id)s] - VIDEO.%(ext)s'),
+        'postprocessors': [{
+            'key': 'FFmpegVideoConvertor',
+            'preferedformat': 'mp4',
+        }],
+    })
+    run_download(video_opts, urls, "Video download")
 
-        # Step 1: Download best video
-        print("\n[1/2] Downloading best video (with audio)...")
-        video_opts = base_ydl_opts(output_dir, merge_format='mp4')
-        video_opts.update({
-            'format': 'bestvideo+bestaudio',
-            'outtmpl': os.path.join(output_dir, '%(title)s [%(id)s] - VIDEO.%(ext)s'),
-            'postprocessors': [{
-                'key': 'FFmpegVideoConvertor',
-                'preferedformat': 'mp4',
-            }],
-        })
-        with yt_dlp.YoutubeDL(video_opts) as ydl:
-            ydl.download(urls)
+    # Step 2: Extract MP3
+    print("\n[2/2] Extracting best audio as MP3...")
+    audio_opts = base_ydl_opts(output_dir)
+    audio_opts.update({
+        'format': 'bestaudio/best',
+        'outtmpl': os.path.join(output_dir, '%(title)s [%(id)s] - AUDIO.%(ext)s'),
+        'postprocessors': [
+            {
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'mp3',
+                'preferredquality': '0',
+            },
+            {
+                'key': 'FFmpegMetadata',
+            }
+        ],
+        'quiet': True,
+    })
+    run_download(audio_opts, urls, "MP3 extraction")
 
-        # Step 2: Extract best audio as MP3
-        print("\n[2/2] Extracting best audio as MP3...")
-        audio_opts = base_ydl_opts(output_dir)
-        audio_opts.update({
-            'format': 'bestaudio/best',
-            'outtmpl': os.path.join(output_dir, '%(title)s [%(id)s] - AUDIO.%(ext)s'),
-            'postprocessors': [
-                {
-                    'key': 'FFmpegExtractAudio',
-                    'preferredcodec': 'mp3',
-                    'preferredquality': '0',
-                },
-                {
-                    'key': 'FFmpegMetadata',
-                }
-            ],
-            'quiet': True,
-        })
-        with yt_dlp.YoutubeDL(audio_opts) as ydl:
-            ydl.download(urls)
-
-        print("\nVideo saved and high-quality MP3 extracted!")
-    except Exception as e:
-        print(f"\nError: {e}")
+    print("\n✅ Video saved and high-quality MP3 extracted!")
     quit_prompt()
 
 def download_audio_single():
@@ -244,13 +268,8 @@ def download_audio_single():
         ],
     })
 
-    try:
-        import yt_dlp
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download(urls)
-        print("\nAudio extraction(s) completed (MP3, best quality).")
-    except Exception as e:
-        print(f"\nError: {e}")
+    run_download(ydl_opts, urls, "Audio download")
+    print("\n✅ Audio extraction(s) completed (MP3, best quality).")
     quit_prompt()
 
 def download_video_only_single():
@@ -274,13 +293,8 @@ def download_video_only_single():
         }],
     })
 
-    try:
-        import yt_dlp
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download(urls)
-        print("\nVideo download(s) completed (no audio extracted).")
-    except Exception as e:
-        print(f"\nError: {e}")
+    run_download(ydl_opts, urls, "Video download")
+    print("\n✅ Video download(s) completed (no audio extracted).")
     quit_prompt()
 
 def download_video_with_audio_playlist():
@@ -297,50 +311,45 @@ def download_video_with_audio_playlist():
     video_path = os.path.join(playlist_dir, "%(title)s [%(id)s] - VIDEO.%(ext)s")
     audio_path = os.path.join(playlist_dir, "%(title)s [%(id)s] - AUDIO.%(ext)s")
 
-    try:
-        import yt_dlp
+    yt_dlp = import_yt_dlp()
 
-        # Step 1: Download best video for each in playlist
-        print("\n[1/2] Downloading best video (merged) for each item...")
-        video_opts = base_ydl_opts(output_dir)
-        video_opts.update({
-            'format': 'bestvideo+bestaudio',
-            'outtmpl': video_path,
-            'noplaylist': False,
-            'merge_output_format': 'mp4',
-            'postprocessors': [{
-                'key': 'FFmpegVideoConvertor',
-                'preferedformat': 'mp4',
-            }],
-        })
-        with yt_dlp.YoutubeDL(video_opts) as ydl:
-            ydl.download([url])
+    # Step 1: Download merged video
+    print("\n[1/2] Downloading best video (merged) for each item...")
+    video_opts = base_ydl_opts(output_dir)
+    video_opts.update({
+        'format': 'bestvideo+bestaudio',
+        'outtmpl': video_path,
+        'noplaylist': False,
+        'merge_output_format': 'mp4',
+        'postprocessors': [{
+            'key': 'FFmpegVideoConvertor',
+            'preferedformat': 'mp4',
+        }],
+    })
+    run_download(video_opts, [url], "Playlist video download")
 
-        # Step 2: Extract best audio as MP3 for each
-        print("\n[2/2] Extracting best audio as MP3 for each...")
-        audio_opts = base_ydl_opts(output_dir)
-        audio_opts.update({
-            'format': 'bestaudio/best',
-            'outtmpl': audio_path,
-            'noplaylist': False,
-            'postprocessors': [
-                {
-                    'key': 'FFmpegExtractAudio',
-                    'preferredcodec': 'mp3',
-                    'preferredquality': '0',
-                },
-                {
-                    'key': 'FFmpegMetadata',
-                }
-            ],
-            'quiet': True,
-        })
-        with yt_dlp.YoutubeDL(audio_opts) as ydl:
-            ydl.download([url])
+    # Step 2: Extract MP3
+    print("\n[2/2] Extracting best audio as MP3 for each...")
+    audio_opts = base_ydl_opts(output_dir)
+    audio_opts.update({
+        'format': 'bestaudio/best',
+        'outtmpl': audio_path,
+        'noplaylist': False,
+        'postprocessors': [
+            {
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'mp3',
+                'preferredquality': '0',
+            },
+            {
+                'key': 'FFmpegMetadata',
+            }
+        ],
+        'quiet': True,
+    })
+    run_download(audio_opts, [url], "Playlist MP3 extraction")
 
-        print("\nPlaylist: Videos saved and MP3s extracted!")
-    except Exception as e:
-        print(f"\nError: {e}")
+    print("\n✅ Playlist: Videos saved and MP3s extracted!")
     quit_prompt()
 
 def download_audio_playlist():
@@ -373,13 +382,8 @@ def download_audio_playlist():
         ],
     })
 
-    try:
-        import yt_dlp
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
-        print("\nPlaylist audio download completed.")
-    except Exception as e:
-        print(f"\nError: {e}")
+    run_download(ydl_opts, [url], "Playlist audio download")
+    print("\n✅ Playlist audio download completed.")
     quit_prompt()
 
 def download_video_only_playlist():
@@ -407,13 +411,8 @@ def download_video_only_playlist():
         }],
     })
 
-    try:
-        import yt_dlp
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
-        print("\nPlaylist video download completed (no audio extracted).")
-    except Exception as e:
-        print(f"\nError: {e}")
+    run_download(ydl_opts, [url], "Playlist video download")
+    print("\n✅ Playlist video download completed (no audio extracted).")
     quit_prompt()
 
 # =============================
@@ -423,6 +422,10 @@ def download_video_only_playlist():
 def select():
     try:
         choice = input("SimpleMediaDownloader~$ ").strip()
+        if not choice.isdigit():
+            print("Invalid input. Please enter a number.")
+            quit_prompt()
+            return
         choice = int(choice)
 
         if choice == 1:
@@ -445,8 +448,11 @@ def select():
         else:
             print("Invalid option. Try again.")
             quit_prompt()
-    except (ValueError, KeyboardInterrupt):
-        print("\nInvalid input. Exiting...")
+    except KeyboardInterrupt:
+        print("\n\nOperation cancelled. Exiting...")
+        sys.exit(0)
+    except Exception as e:
+        print(f"\nUnexpected error: {e}")
         sys.exit(1)
 
 # =============================
