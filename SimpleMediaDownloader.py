@@ -13,6 +13,18 @@ Features:
 import os
 import sys
 import re
+import shutil
+
+# =============================
+# Check for FFmpeg at Startup
+# =============================
+
+def check_ffmpeg():
+    """Ensure ffmpeg is available in PATH."""
+    if shutil.which("ffmpeg") is None:
+        print("Error: ffmpeg is not installed or not in system PATH.")
+        print("Please install ffmpeg: https://ffmpeg.org/download.html")
+        sys.exit(1)
 
 # =============================
 # Utility Functions
@@ -120,8 +132,8 @@ HELP:
 - Duplicate downloads are skipped automatically
 - Retries enabled for unstable connections
 - Default download path: ~/Downloads (Linux/macOS) or C:\\Users\\<User>\\Downloads (Windows)
-- [1] & [4]: Download best video AND extract MP3 automatically
-- [2] & [5]: Audio-only (no video downloaded)
+- [1] & [4]: Download best video and extract MP3 from it (single pass)
+- [2] & [5]: Audio-only (no video saved)
 - [3] & [6]: Video-only (no MP3 extracted)
     """)
     quit_prompt()
@@ -188,12 +200,12 @@ def run_download(ydl_opts, urls, desc="Downloading"):
         print(f"\nError during {desc.lower()}: {e}")
 
 # =============================
-# Download Functions (Enhanced)
+# Download Functions (Optimized)
 # =============================
 
 def download_video_with_audio():
     clear_and_banner()
-    print("=== Video + Audio Extraction (Best of Both) ===\n")
+    print("=== Video + Audio Extraction (Single Download + Extract MP3) ===\n")
     urls = get_urls(multiple=True)
     if not urls:
         print("No valid URLs provided.")
@@ -201,28 +213,18 @@ def download_video_with_audio():
         return
 
     output_dir = get_output_dir()
-    yt_dlp = import_yt_dlp()
 
-    # Step 1: Download best video (merged)
-    print("\n[1/2] Downloading best video (merged)...")
+    # Download once: best video+audio, merge to mp4, then extract MP3
+    print("\n[1/2] Downloading best video with audio (merged)...")
     video_opts = base_ydl_opts(output_dir, merge_format='mp4')
     video_opts.update({
         'format': 'bestvideo+bestaudio',
-        'outtmpl': os.path.join(output_dir, '%(title)s [%(id)s] - VIDEO.%(ext)s'),
-        'postprocessors': [{
-            'key': 'FFmpegVideoConvertor',
-            'preferedformat': 'mp4',
-        }],
-    })
-    run_download(video_opts, urls, "Video download")
-
-    # Step 2: Extract MP3
-    print("\n[2/2] Extracting best audio as MP3...")
-    audio_opts = base_ydl_opts(output_dir)
-    audio_opts.update({
-        'format': 'bestaudio/best',
-        'outtmpl': os.path.join(output_dir, '%(title)s [%(id)s] - AUDIO.%(ext)s'),
+        'outtmpl': os.path.join(output_dir, '%(title)s [%(id)s].%(ext)s'),
         'postprocessors': [
+            {
+                'key': 'FFmpegVideoConvertor',
+                'preferedformat': 'mp4',
+            },
             {
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'mp3',
@@ -232,11 +234,10 @@ def download_video_with_audio():
                 'key': 'FFmpegMetadata',
             }
         ],
-        'quiet': True,
     })
-    run_download(audio_opts, urls, "MP3 extraction")
 
-    print("\n✅ Video saved and high-quality MP3 extracted!")
+    run_download(video_opts, urls, "Video download and MP3 extraction")
+    print("\n✅ Video saved as MP4 and high-quality MP3 extracted!")
     quit_prompt()
 
 def download_audio_single():
@@ -308,34 +309,20 @@ def download_video_with_audio_playlist():
 
     output_dir = get_output_dir()
     playlist_dir = os.path.join(output_dir, "%(playlist_title)s")
-    video_path = os.path.join(playlist_dir, "%(title)s [%(id)s] - VIDEO.%(ext)s")
-    audio_path = os.path.join(playlist_dir, "%(title)s [%(id)s] - AUDIO.%(ext)s")
+    full_path = os.path.join(playlist_dir, "%(title)s [%(id)s].%(ext)s")
 
-    yt_dlp = import_yt_dlp()
-
-    # Step 1: Download merged video
-    print("\n[1/2] Downloading best video (merged) for each item...")
-    video_opts = base_ydl_opts(output_dir)
-    video_opts.update({
+    print("\nDownloading each video and extracting MP3...")
+    ydl_opts = base_ydl_opts(output_dir)
+    ydl_opts.update({
         'format': 'bestvideo+bestaudio',
-        'outtmpl': video_path,
+        'outtmpl': full_path,
         'noplaylist': False,
         'merge_output_format': 'mp4',
-        'postprocessors': [{
-            'key': 'FFmpegVideoConvertor',
-            'preferedformat': 'mp4',
-        }],
-    })
-    run_download(video_opts, [url], "Playlist video download")
-
-    # Step 2: Extract MP3
-    print("\n[2/2] Extracting best audio as MP3 for each...")
-    audio_opts = base_ydl_opts(output_dir)
-    audio_opts.update({
-        'format': 'bestaudio/best',
-        'outtmpl': audio_path,
-        'noplaylist': False,
         'postprocessors': [
+            {
+                'key': 'FFmpegVideoConvertor',
+                'preferedformat': 'mp4',
+            },
             {
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'mp3',
@@ -345,11 +332,10 @@ def download_video_with_audio_playlist():
                 'key': 'FFmpegMetadata',
             }
         ],
-        'quiet': True,
     })
-    run_download(audio_opts, [url], "Playlist MP3 extraction")
 
-    print("\n✅ Playlist: Videos saved and MP3s extracted!")
+    run_download(ydl_opts, [url], "Playlist video and MP3 extraction")
+    print("\n✅ Playlist: Videos saved and MP3s extracted in single pass!")
     quit_prompt()
 
 def download_audio_playlist():
@@ -460,6 +446,7 @@ def select():
 # =============================
 
 if __name__ == "__main__":
+    check_ffmpeg()  # Verify ffmpeg is available
     try:
         clear_and_banner()
         show_menu()
