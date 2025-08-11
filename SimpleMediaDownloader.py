@@ -334,8 +334,8 @@ def base_ydl_opts(output_dir):
     return {
         'retries': 5,
         'fragment_retries': 10,
-        'continue': True,
-        'no_overwrites': True,
+        'continuedl': True,
+        'nooverwrites': True,
         'progress_hooks': [progress_hook],
         'outtmpl': os.path.join(output_dir, '%(title)s [%(id)s].%(ext)s'),
         'writethumbnail': False,
