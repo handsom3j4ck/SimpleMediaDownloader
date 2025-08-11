@@ -413,7 +413,7 @@ def download_video_with_audio():
         'postprocessors': [
             {
                 'key': 'FFmpegVideoConvertor',
-                'preferredformat': 'mp4',
+                'preferedformat': 'mp4',
             },
             {
                 'key': 'FFmpegExtractAudio',
