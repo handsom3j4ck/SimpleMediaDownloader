@@ -227,11 +227,4 @@ If any downloads fail due to network issues:
 
 ---
 
-## 📬 Feedback & Contributions
-
-Found a bug? Want a new feature?  
-Feel free to open an [issue](https://github.com/handsom3j4ck/SimpleMediaDownloader/issues) or submit a [pull request](https://github.com/handsom3j4ck/SimpleMediaDownloader/pulls)!
-
----
-
 > ✅ **SimpleMediaDownloader** — Simple, powerful, and reliable media downloading for everyone.
