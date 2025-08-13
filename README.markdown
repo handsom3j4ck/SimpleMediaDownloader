@@ -13,7 +13,7 @@ A simple, user-friendly command-line tool to download videos, audio, and playlis
   Extract high-quality MP3s (VBR quality 0) directly — perfect for music or podcasts.
 
 - **Video Only (No Audio Extraction)**  
-  Download video without extracting audio — saves space and time.
+  Download video without extracting audio .
 
 - **Supports:**
   - ✅ Single URLs
