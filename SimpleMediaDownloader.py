@@ -170,10 +170,6 @@ def quit_prompt():
         if con.startswith('n'):
             print("Exiting...")
             sys.exit(0)
-        else:
-            clear_and_banner()
-            show_menu()
-            select()
     except (KeyboardInterrupt, EOFError):
         print("\n\nExiting...")
         sys.exit(0)
@@ -343,6 +339,7 @@ def base_ydl_opts(output_dir):
 # =============================
 
 def download_single(ydl_opts, url, desc):
+    print(f"Starting {desc}: {url}")
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
@@ -359,10 +356,17 @@ def run_download(ydl_opts, urls, desc="Downloading"):
     failed = []
     if not urls:
         return
-    if len(urls) > 1:
-        # Concurrent downloads for multiple URLs
+    if len(urls) == 1:
+        result = download_single(ydl_opts, urls[0], desc)
+        if result:
+            failed.append(result)
+    else:
+        concurrent_ydl_opts = ydl_opts.copy()
+        concurrent_ydl_opts['progress_hooks'] = []
+        concurrent_ydl_opts['quiet'] = True
+        print(f"Starting {len(urls)} concurrent {desc} downloads...")
         with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-            future_to_url = {executor.submit(download_single, ydl_opts.copy(), url, desc): url for url in urls}
+            future_to_url = {executor.submit(download_single, concurrent_ydl_opts, url, desc): url for url in urls}
             for future in concurrent.futures.as_completed(future_to_url):
                 try:
                     result = future.result()
@@ -371,13 +375,8 @@ def run_download(ydl_opts, urls, desc="Downloading"):
                 except Exception as exc:
                     url = future_to_url[future]
                     err_msg = str(exc).split('\n')[0]
-                    print(f"[✗] {desc} failed: {url} ({err_msg})")
+                    print(f"[✗] {desc} failed exceptionally: {url} ({err_msg})")
                     failed.append((url, desc, err_msg))
-    else:
-        # Single URL
-        result = download_single(ydl_opts, urls[0], desc)
-        if result:
-            failed.append(result)
     if failed:
         FAILED_DOWNLOADS.extend(failed)
         print(f"\n❌ {len(failed)}/{len(urls)} download(s) failed. Use [7] to retry.")
@@ -580,7 +579,6 @@ def select():
         choice = input("SimpleMediaDownloader~$ ").strip()
         if not choice.isdigit():
             print("Invalid input. Please enter a number.")
-            quit_prompt()
             return
         choice = int(choice)
 
@@ -607,24 +605,18 @@ def select():
             sys.exit(0)
         else:
             print("Invalid option. Try again.")
-            quit_prompt()
     except KeyboardInterrupt:
-        print("\n\nOperation cancelled. Exiting...")
-        sys.exit(0)
+        print("\n\nOperation cancelled.")
     except Exception as e:
         print(f"\nUnexpected error: {e}")
-        sys.exit(1)
 
 # =============================
 # Entry Point
 # =============================
 
 if __name__ == "__main__":
-    check_ffmpeg()  # Verify ffmpeg is available
-    try:
-        clear_and_banner()
-        show_menu()
+    check_ffmpeg()
+    clear_and_banner()
+    show_menu()
+    while True:
         select()
-    except KeyboardInterrupt:
-        print("\n\nExiting...")
-        sys.exit(0)
