@@ -640,7 +640,7 @@ def select():
 
 if __name__ == "__main__":
     check_ffmpeg()
-    clear_and_banner()
-    show_menu()
     while True:
+        clear_and_banner()
+        show_menu()
         select()
