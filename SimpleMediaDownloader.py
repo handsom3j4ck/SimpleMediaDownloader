@@ -16,6 +16,7 @@ import re
 import shutil
 import concurrent.futures
 from collections import defaultdict
+from urllib.parse import urlparse, parse_qs
 
 try:
     import yt_dlp
@@ -77,18 +78,23 @@ def is_valid_url(url):
     regex = r'^https?://(?:[-\w.]|(?:%[\da-fA-F]{2}))+'
     return re.match(regex, url) is not None
 
-def get_urls(multiple=True):
-    """Get one or more URLs from user."""
-    if not multiple:
-        url = input("Enter URL: ").strip()
-        if not url:
-            return []
-        if not is_valid_url(url):
-            print(f"  [!] Invalid URL: {url}")
-            return []
-        return [url]
+def is_pure_playlist_url(url):
+    """Check if the URL is a pure playlist URL (not a video in a playlist)."""
+    try:
+        parsed = urlparse(url)
+        domain = parsed.netloc.lower()
+        if 'youtube.com' in domain or 'youtu.be' in domain:
+            qs = parse_qs(parsed.query)
+            return 'list' in qs and 'v' not in qs
+        else:
+            return False  # For non-YouTube, do not skip
+    except:
+        return False
 
-    print("Enter URLs (one per line). Press Enter twice to finish:")
+def get_urls(multiple=True, expect_playlist=False):
+    """Get one or more URLs from user."""
+    prompt = "Enter URLs" if not expect_playlist else "Enter playlist URLs"
+    print(f"{prompt} (one per line). Press Enter twice to finish:")
     urls = []
     while True:
         try:
@@ -96,7 +102,10 @@ def get_urls(multiple=True):
             if not url:
                 break
             if not is_valid_url(url):
-                print(f"  [!] Invalid URL skipped: {url}")
+                print(f"  [!] Invalid URL: {url}")
+                continue
+            if not expect_playlist and is_pure_playlist_url(url):
+                print(f"  [!] Playlist URL detected: {url}. Please use the Playlist Mode for playlists.")
                 continue
             urls.append(url)
         except EOFError:
@@ -309,10 +318,15 @@ def _retry_downloads(urls, mode):
     elif "Video without Audio" in mode:
         ydl_opts.update({
             'format': 'bestvideo',
-            'postprocessors': [{
-                'key': 'FFmpegVideoConvertor',
-                'preferedformat': 'mp4',
-            }],
+            'postprocessors': [
+                {
+                    'key': 'FFmpegVideoConvertor',
+                    'preferedformat': 'mp4',
+                },
+                {
+                    'key': 'FFmpegMetadata',
+                }
+            ],
         })
     run_download_with_log(ydl_opts, urls, mode)
 
@@ -392,7 +406,7 @@ def run_download_with_log(ydl_opts, urls, desc):
 def download_video_with_audio():
     clear_and_banner()
     print("=== Video with Audio (Single or Multiple) ===\n")
-    urls = get_urls(multiple=True)
+    urls = get_urls(multiple=True, expect_playlist=False)
     if not urls:
         print("No valid URLs provided.")
         quit_prompt()
@@ -422,7 +436,7 @@ def download_video_with_audio():
 def download_audio_single():
     clear_and_banner()
     print("=== Audio Download (Single or Multiple) ===\n")
-    urls = get_urls(multiple=True)
+    urls = get_urls(multiple=True, expect_playlist=False)
     if not urls:
         print("No valid URLs provided.")
         quit_prompt()
@@ -453,7 +467,7 @@ def download_audio_single():
 def download_video_only_single():
     clear_and_banner()
     print("=== Video without Audio (Single or Multiple) ===\n")
-    urls = get_urls(multiple=True)
+    urls = get_urls(multiple=True, expect_playlist=False)
     if not urls:
         print("No valid URLs provided.")
         quit_prompt()
@@ -465,10 +479,15 @@ def download_video_only_single():
     ydl_opts.update({
         'noplaylist': True,
         'format': 'bestvideo',
-        'postprocessors': [{
-            'key': 'FFmpegVideoConvertor',
-            'preferedformat': 'mp4',
-        }],
+        'postprocessors': [
+            {
+                'key': 'FFmpegVideoConvertor',
+                'preferedformat': 'mp4',
+            },
+            {
+                'key': 'FFmpegMetadata',
+            }
+        ],
     })
 
     run_download(ydl_opts, urls, "Video without Audio")
@@ -478,9 +497,9 @@ def download_video_only_single():
 def download_video_with_audio_playlist():
     clear_and_banner()
     print("=== Video with Audio (Playlist Mode) ===\n")
-    url = input("Enter playlist URL: ").strip()
-    if not url or not is_valid_url(url):
-        print("Invalid or no URL provided.")
+    urls = get_urls(multiple=True, expect_playlist=True)
+    if not urls:
+        print("No valid URLs provided.")
         quit_prompt()
         return
 
@@ -504,16 +523,16 @@ def download_video_with_audio_playlist():
         ],
     })
 
-    run_download(ydl_opts, [url], "Playlist Video with Audio")
+    run_download(ydl_opts, urls, "Playlist Video with Audio")
     print("\n✅ Playlist: Videos with audio downloaded!")
     quit_prompt()
 
 def download_audio_playlist():
     clear_and_banner()
     print("=== Audio Only (Playlist Mode) ===\n")
-    url = input("Enter playlist URL: ").strip()
-    if not url or not is_valid_url(url):
-        print("Invalid or no URL provided.")
+    urls = get_urls(multiple=True, expect_playlist=True)
+    if not urls:
+        print("No valid URLs provided.")
         quit_prompt()
         return
 
@@ -538,16 +557,16 @@ def download_audio_playlist():
         ],
     })
 
-    run_download(ydl_opts, [url], "Playlist Audio")
+    run_download(ydl_opts, urls, "Playlist Audio")
     print("\n✅ Playlist audio download completed.")
     quit_prompt()
 
 def download_video_only_playlist():
     clear_and_banner()
     print("=== Video without Audio (Playlist Mode) ===\n")
-    url = input("Enter playlist URL: ").strip()
-    if not url or not is_valid_url(url):
-        print("Invalid or no URL provided.")
+    urls = get_urls(multiple=True, expect_playlist=True)
+    if not urls:
+        print("No valid URLs provided.")
         quit_prompt()
         return
 
@@ -560,13 +579,18 @@ def download_video_only_playlist():
         'noplaylist': False,
         'format': 'bestvideo',
         'outtmpl': full_path,
-        'postprocessors': [{
-            'key': 'FFmpegVideoConvertor',
-            'preferedformat': 'mp4',
-        }],
+        'postprocessors': [
+            {
+                'key': 'FFmpegVideoConvertor',
+                'preferedformat': 'mp4',
+            },
+            {
+                'key': 'FFmpegMetadata',
+            }
+        ],
     })
 
-    run_download(ydl_opts, [url], "Playlist Video without Audio")
+    run_download(ydl_opts, urls, "Playlist Video without Audio")
     print("\n✅ Playlist video without audio download completed.")
     quit_prompt()
 
