@@ -196,16 +196,16 @@ def download_thread_settings():
     print("Recommended: 1–5 (higher may slow down connections or overload system)\n")
 
     try:
-        new_value = input("Enter new number of concurrent downloads (1-10): ").strip()
+        new_value = input("Enter new number of concurrent downloads (1 or more): ").strip()
         if not new_value.isdigit():
             print("Invalid input. Not changed.")
         else:
             num = int(new_value)
-            if 1 <= num <= 10:
+            if num >= 1:
                 MAX_WORKERS = num
                 print(f"✅ Concurrent downloads set to: {MAX_WORKERS}")
             else:
-                print("Please enter a number between 1 and 10.")
+                print("Please enter a number at least 1.")
     except (KeyboardInterrupt, EOFError):
         print("\nCancelled.")
     finally:
@@ -354,9 +354,11 @@ def base_ydl_opts(output_dir):
 # =============================
 
 def download_single(ydl_opts, url, desc):
+    print(f"Starting {desc} for {url}")
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
+        print(f"Completed {desc} for {url}")
         return None
     except Exception as e:
         err_msg = str(e).split('\n')[0]
@@ -371,7 +373,6 @@ def run_download(ydl_opts, urls, desc="Downloading"):
     succeeded = []
     if len(urls) == 1:
         url = urls[0]
-        print(f"Starting {desc}: {url}")
         result = download_single(ydl_opts, url, desc)
         if result:
             failed.append(result)
