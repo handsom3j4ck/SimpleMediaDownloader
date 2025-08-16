@@ -17,6 +17,7 @@ import shutil
 import concurrent.futures
 from collections import defaultdict
 from urllib.parse import urlparse, parse_qs
+from yt_dlp.utils import sanitize_filename
 
 try:
     import yt_dlp
@@ -353,44 +354,55 @@ def base_ydl_opts(output_dir):
 # =============================
 
 def download_single(ydl_opts, url, desc):
-    print(f"Starting {desc}: {url}")
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
-        print(f"[✓] {desc} succeeded: {url}")
         return None
     except Exception as e:
         err_msg = str(e).split('\n')[0]
-        print(f"[✗] {desc} failed: {url} - {err_msg}")
         return (url, desc, err_msg)
 
 def run_download(ydl_opts, urls, desc="Downloading"):
     """Generic download function with error handling and failure logging."""
     global FAILED_DOWNLOADS
-    failed = []
     if not urls:
         return
+    failed = []
+    succeeded = []
     if len(urls) == 1:
-        result = download_single(ydl_opts, urls[0], desc)
+        url = urls[0]
+        print(f"Starting {desc}: {url}")
+        result = download_single(ydl_opts, url, desc)
         if result:
             failed.append(result)
+            print(f"[✗] {desc} failed: {url} - {result[2]}")
+        else:
+            succeeded.append(url)
+            print(f"[✓] {desc} succeeded: {url}")
     else:
+        print(f"Starting {len(urls)} concurrent {desc} downloads...")
         concurrent_ydl_opts = ydl_opts.copy()
         concurrent_ydl_opts['progress_hooks'] = []
         concurrent_ydl_opts['quiet'] = True
-        print(f"Starting {len(urls)} concurrent {desc} downloads...")
         with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-            future_to_url = {executor.submit(download_single, concurrent_ydl_opts, url, desc): url for url in urls}
-            for future in concurrent.futures.as_completed(future_to_url):
+            futures = [executor.submit(download_single, concurrent_ydl_opts, url, desc) for url in urls]
+            concurrent.futures.wait(futures)
+            for i, future in enumerate(futures):
+                url = urls[i]
                 try:
                     result = future.result()
                     if result:
                         failed.append(result)
+                    else:
+                        succeeded.append(url)
                 except Exception as exc:
-                    url = future_to_url[future]
                     err_msg = str(exc).split('\n')[0]
-                    print(f"[✗] {desc} failed exceptionally: {url} ({err_msg})")
                     failed.append((url, desc, err_msg))
+        print("\nDownload summary:")
+        for url in succeeded:
+            print(f"[✓] {desc} succeeded: {url}")
+        for url_desc_err in failed:
+            print(f"[✗] {desc} failed: {url_desc_err[0]} - {url_desc_err[2]}")
     if failed:
         FAILED_DOWNLOADS.extend(failed)
         print(f"\n❌ {len(failed)}/{len(urls)} download(s) failed. Use [7] to retry.")
@@ -504,26 +516,37 @@ def download_video_with_audio_playlist():
         return
 
     output_dir = get_output_dir()
-    playlist_dir = os.path.join(output_dir, "%(playlist_title)s")
-    full_path = os.path.join(playlist_dir, "%(title)s [%(id)s].%(ext)s")
-
-    ydl_opts = base_ydl_opts(output_dir)
-    ydl_opts.update({
-        'noplaylist': False,
-        'format': 'bestvideo+bestaudio',
-        'outtmpl': full_path,
-        'postprocessors': [
-            {
-                'key': 'FFmpegVideoConvertor',
-                'preferedformat': 'mp4',
-            },
-            {
-                'key': 'FFmpegMetadata',
-            }
-        ],
-    })
-
-    run_download(ydl_opts, urls, "Playlist Video with Audio")
+    for pl_url in urls:
+        print(f"\nProcessing playlist: {pl_url}")
+        try:
+            extract_opts = {'quiet': True, 'extract_flat': 'in_playlist'}
+            with yt_dlp.YoutubeDL(extract_opts) as ydl:
+                info = ydl.extract_info(pl_url, download=False)
+            if 'entries' not in info:
+                print(f"  [!] Not a playlist: {pl_url}. Skipping.")
+                continue
+            playlist_title = info.get('title', 'Unknown_Playlist')
+            playlist_dir = os.path.join(output_dir, sanitize_filename(playlist_title))
+            os.makedirs(playlist_dir, exist_ok=True)
+            video_urls = [entry['url'] for entry in info['entries'] if 'url' in entry]
+            ydl_opts = base_ydl_opts(output_dir)
+            ydl_opts['outtmpl'] = os.path.join(playlist_dir, '%(title)s [%(id)s].%(ext)s')
+            ydl_opts['noplaylist'] = True
+            ydl_opts.update({
+                'format': 'bestvideo+bestaudio',
+                'postprocessors': [
+                    {
+                        'key': 'FFmpegVideoConvertor',
+                        'preferedformat': 'mp4',
+                    },
+                    {
+                        'key': 'FFmpegMetadata',
+                    }
+                ],
+            })
+            run_download(ydl_opts, video_urls, "Playlist Video with Audio")
+        except Exception as e:
+            print(f"Error processing playlist {pl_url}: {str(e)}")
     print("\n✅ Playlist: Videos with audio downloaded!")
     quit_prompt()
 
@@ -537,27 +560,38 @@ def download_audio_playlist():
         return
 
     output_dir = get_output_dir()
-    playlist_dir = os.path.join(output_dir, "%(playlist_title)s")
-    full_path = os.path.join(playlist_dir, "%(title)s [%(id)s].%(ext)s")
-
-    ydl_opts = base_ydl_opts(output_dir)
-    ydl_opts.update({
-        'noplaylist': False,
-        'format': 'bestaudio/best',
-        'outtmpl': full_path,
-        'postprocessors': [
-            {
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '0',
-            },
-            {
-                'key': 'FFmpegMetadata',
-            }
-        ],
-    })
-
-    run_download(ydl_opts, urls, "Playlist Audio")
+    for pl_url in urls:
+        print(f"\nProcessing playlist: {pl_url}")
+        try:
+            extract_opts = {'quiet': True, 'extract_flat': 'in_playlist'}
+            with yt_dlp.YoutubeDL(extract_opts) as ydl:
+                info = ydl.extract_info(pl_url, download=False)
+            if 'entries' not in info:
+                print(f"  [!] Not a playlist: {pl_url}. Skipping.")
+                continue
+            playlist_title = info.get('title', 'Unknown_Playlist')
+            playlist_dir = os.path.join(output_dir, sanitize_filename(playlist_title))
+            os.makedirs(playlist_dir, exist_ok=True)
+            video_urls = [entry['url'] for entry in info['entries'] if 'url' in entry]
+            ydl_opts = base_ydl_opts(output_dir)
+            ydl_opts['outtmpl'] = os.path.join(playlist_dir, '%(title)s [%(id)s].%(ext)s')
+            ydl_opts['noplaylist'] = True
+            ydl_opts.update({
+                'format': 'bestaudio/best',
+                'postprocessors': [
+                    {
+                        'key': 'FFmpegExtractAudio',
+                        'preferredcodec': 'mp3',
+                        'preferredquality': '0',
+                    },
+                    {
+                        'key': 'FFmpegMetadata',
+                    }
+                ],
+            })
+            run_download(ydl_opts, video_urls, "Playlist Audio")
+        except Exception as e:
+            print(f"Error processing playlist {pl_url}: {str(e)}")
     print("\n✅ Playlist audio download completed.")
     quit_prompt()
 
@@ -571,26 +605,37 @@ def download_video_only_playlist():
         return
 
     output_dir = get_output_dir()
-    playlist_dir = os.path.join(output_dir, "%(playlist_title)s")
-    full_path = os.path.join(playlist_dir, "%(title)s [%(id)s].%(ext)s")
-
-    ydl_opts = base_ydl_opts(output_dir)
-    ydl_opts.update({
-        'noplaylist': False,
-        'format': 'bestvideo',
-        'outtmpl': full_path,
-        'postprocessors': [
-            {
-                'key': 'FFmpegVideoConvertor',
-                'preferedformat': 'mp4',
-            },
-            {
-                'key': 'FFmpegMetadata',
-            }
-        ],
-    })
-
-    run_download(ydl_opts, urls, "Playlist Video without Audio")
+    for pl_url in urls:
+        print(f"\nProcessing playlist: {pl_url}")
+        try:
+            extract_opts = {'quiet': True, 'extract_flat': 'in_playlist'}
+            with yt_dlp.YoutubeDL(extract_opts) as ydl:
+                info = ydl.extract_info(pl_url, download=False)
+            if 'entries' not in info:
+                print(f"  [!] Not a playlist: {pl_url}. Skipping.")
+                continue
+            playlist_title = info.get('title', 'Unknown_Playlist')
+            playlist_dir = os.path.join(output_dir, sanitize_filename(playlist_title))
+            os.makedirs(playlist_dir, exist_ok=True)
+            video_urls = [entry['url'] for entry in info['entries'] if 'url' in entry]
+            ydl_opts = base_ydl_opts(output_dir)
+            ydl_opts['outtmpl'] = os.path.join(playlist_dir, '%(title)s [%(id)s].%(ext)s')
+            ydl_opts['noplaylist'] = True
+            ydl_opts.update({
+                'format': 'bestvideo',
+                'postprocessors': [
+                    {
+                        'key': 'FFmpegVideoConvertor',
+                        'preferedformat': 'mp4',
+                    },
+                    {
+                        'key': 'FFmpegMetadata',
+                    }
+                ],
+            })
+            run_download(ydl_opts, video_urls, "Playlist Video without Audio")
+        except Exception as e:
+            print(f"Error processing playlist {pl_url}: {str(e)}")
     print("\n✅ Playlist video without audio download completed.")
     quit_prompt()
 
