@@ -206,7 +206,7 @@ def download_thread_settings():
                 print(f"✅ Concurrent downloads set to: {MAX_WORKERS}")
             else:
                 print("Please enter a number at least 1.")
-    except (KeyboardInterrupt, EOFError):
+    except EOFError:
         print("\nCancelled.")
     finally:
         quit_prompt()
@@ -675,8 +675,6 @@ def select():
             sys.exit(0)
         else:
             print("Invalid option. Try again.")
-    except KeyboardInterrupt:
-        print("\n\nOperation cancelled.")
     except Exception as e:
         print(f"\nUnexpected error: {e}")
 
@@ -686,7 +684,11 @@ def select():
 
 if __name__ == "__main__":
     check_ffmpeg()
-    while True:
-        clear_and_banner()
-        show_menu()
-        select()
+    try:
+        while True:
+            clear_and_banner()
+            show_menu()
+            select()
+    except KeyboardInterrupt:
+        print("\n\nExiting...")
+        sys.exit(0)
